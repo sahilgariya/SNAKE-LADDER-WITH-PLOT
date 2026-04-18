@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Boop & Slide: Ultra Edition</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card: rgba(30, 41, 59, 0.7);
+            --accent: #38bdf8;
+            --google-red: #ff4d4d;
+            --google-green: #00e676;
+        }
+
+        body { 
+            background: var(--bg); 
+            color: white; 
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            display: flex; justify-content: center; align-items: center; 
+            height: 100vh; margin: 0; overflow: hidden;
+        }
+
+        /* Glassmorphism Container */
+        #game-shell {
+            background: var(--card);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            display: flex;
+            gap: 30px;
+            align-items: flex-start;
+        }
+
+        /* Stats Panel */
+        .side-panel {
+            width: 200px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 16px;
+            text-align: center;
+            border-left: 4px solid var(--accent);
+        }
+
+        canvas {
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+        }
+
+        /* 3D Dice Button */
+        .dice-container {
+            position: relative;
+            perspective: 1000px;
+            margin-top: 20px;
+        }
+
+        #roll-btn {
+            width: 100%;
+            padding: 15px;
+            font-size: 18px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: linear-gradient(135deg, #38bdf8, #818cf8);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 15px -3px rgba(56, 189, 248, 0.4);
+        }
+
+        #roll-btn:hover {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 20px 25px -5px rgba(56, 189, 248, 0.5);
+        }
+
+        #roll-btn:active { transform: translateY(0); }
+
+        #log-display {
+            font-size: 14px;
+            color: #94a3b8;
+            height: 60px;
+            overflow-y: hidden;
+            font-style: italic;
+        }
+
+        .active-turn {
+            border: 2px solid var(--accent);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(56, 189, 248, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-shell">
+        <div class="side-panel">
+            <h2 style="margin:0; color: var(--accent);">BOOP!</h2>
+            <div id="log-display">Waiting for start...</div>
+            
+            <div class="stat-card">
+                <small>CURRENT TURN</small>
+                <div id="turn-name" style="font-size: 20px; font-weight: bold; margin-top:5px;">Player 1</div>
+            </div>
+
+            <div class="stat-card" style="border-color: #fbbf24;">
+                <small>DICE ROLL</small>
+                <div id="dice-val" style="font-size: 32px; font-weight: 900;">-</div>
+            </div>
+
+            <button id="roll-btn" onclick="handleRoll()">Roll Dice</button>
+        </div>
+
+        <div style="position: relative;">
+            <canvas id="board" width="500" height="500"></canvas>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('board');
+    const ctx = canvas.getContext('2d');
+    const log = document.getElementById('log-display');
+    
+    let players = [
+        { id: 1, pos: 0, color: '#38bdf8', x: 25, y: 475, targetX: 25, targetY: 475, name: "You" },
+        { id: 2, pos: 0, color: '#f472b6', x: 25, y: 475, targetX: 25, targetY: 475, name: "Google Bot" }
+    ];
+    let turn = 0;
+    let isMoving = false;
+
+    const jumps = { 
+        3: 21, 7: 35, 20: 50, 36: 85, // Ladders
+        98: 60, 82: 20, 48: 15, 33: 4  // Snakes
+    };
+
+    function getCoords(pos) {
+        let row = Math.floor(pos / 10);
+        let col = pos % 10;
+        if (row % 2 !== 0) col = 9 - col;
+        return { x: col * 50 + 25, y: 475 - (row * 50) };
+    }
+
+    function drawGame() {
+        ctx.clearRect(0, 0, 500, 500);
+        
+        // 1. Sleek Modern Grid
+        for (let i = 0; i < 100; i++) {
+            let {x, y} = getCoords(i);
+            ctx.fillStyle = (Math.floor(i/10) + i) % 2 === 0 ? '#ffffff' : '#f8fafc';
+            ctx.fillRect(x-25, y-25, 50, 50);
+            
+            ctx.fillStyle = '#cbd5e1';
+            ctx.font = 'bold 10px Inter';
+            ctx.fillText(i + 1, x - 20, y - 12);
+        }
+
+        // 2. Neon Snakes & Ladders
+        for (let start in jumps) {
+            let end = jumps[start];
+            let s = getCoords(parseInt(start));
+            let e = getCoords(end);
+            
+            ctx.setLineDash(end > start ? [] : [5, 5]); // Dashed lines for snakes
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = end > start ? "#00e676" : "#ff4d4d";
+            
+            ctx.beginPath();
+            ctx.moveTo(s.x, s.y);
+            ctx.quadraticCurveTo((s.x + e.x)/2 + 20, (s.y + e.y)/2 - 20, e.x, e.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // 3. Smooth Player Rendering
+        players.forEach(p => {
+            p.x += (p.targetX - p.x) * 0.1;
+            p.y += (p.targetY - p.y) * 0.1;
+            
+            ctx.shadowBlur = 15; ctx.shadowColor = p.color;
+            ctx.beginPath(); ctx.arc(p.x, p.y, 14, 0, Math.PI*2);
+            ctx.fillStyle = p.color; ctx.fill();
+            ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke();
+            ctx.shadowBlur = 0;
+        });
+
+        requestAnimationFrame(drawGame);
+    }
+
+    async function handleRoll() {
+        if (isMoving) return;
+        isMoving = true;
+
+        let roll = Math.floor(Math.random() * 6) + 1;
+        document.getElementById('dice-val').innerText = roll;
+        let p = players[turn];
+
+        log.innerText = `${p.name} is moving ${roll} steps...`;
+
+        for(let i=0; i<roll; i++) {
+            if (p.pos < 99) {
+                p.pos++;
+                let c = getCoords(p.pos);
+                p.targetX = c.x; p.targetY = c.y;
+                await new Promise(r => setTimeout(r, 150));
+            }
+        }
+
+        // BOOP LOGIC
+        let other = players[1 - turn];
+        if (p.pos === other.pos && p.pos < 99) {
+            log.innerText = "BOOP! Collision detected!";
+            other.pos += 1;
+            let c = getCoords(other.pos);
+            other.targetX = c.x; other.targetY = c.y;
+        }
+
+        // JUMP LOGIC
+        if (jumps[p.pos]) {
+            let isUp = jumps[p.pos] > p.pos;
+            log.innerText = isUp ? "LADDER BOOST!" : "SNAKE ENCOUNTERED!";
+            await new Promise(r => setTimeout(r, 500));
+            p.pos = jumps[p.pos];
+            let c = getCoords(p.pos);
+            p.targetX = c.x; p.targetY = c.y;
+        }
+
+        if (p.pos >= 99) {
+            alert(p.name + " WINS THE CHAMPIONSHIP!");
+            location.reload();
+        }
+
+        turn = (turn + 1) % 2;
+        document.getElementById('turn-name').innerText = players[turn].name;
+        isMoving = false;
+
+        if (turn === 1) setTimeout(handleRoll, 1000);
+    }
+
+    drawGame();
+</script>
+</body>
+</html>
